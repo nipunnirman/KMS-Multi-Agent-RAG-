@@ -68,7 +68,7 @@ function App() {
           <div className="logo-icon">
             <Bot size={24} color="#fff" />
           </div>
-          <h1>Vector DB Assistant</h1>
+          <h1>KMS multi agent rag system</h1>
         </div>
       </header>
 
@@ -80,14 +80,7 @@ function App() {
             </div>
             <h2>How can I help you today?</h2>
             <p>Ask me anything about vector databases, indexing, or RAG.</p>
-            <div className="example-questions">
-              <button onClick={() => setQuestion("What are the advantages of vector databases?")}>
-                "What are the advantages of vector databases?"
-              </button>
-              <button onClick={() => setQuestion("Explain HNSW indexing.")}>
-                "Explain HNSW indexing."
-              </button>
-            </div>
+
           </div>
         ) : (
           <div className="messages-list">
