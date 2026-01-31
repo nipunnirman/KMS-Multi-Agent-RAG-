@@ -15,8 +15,11 @@ class Settings(BaseSettings):
     openai_model_name: str = "gpt-4o-mini"
     openai_embedding_model_name: str = "text-embedding-3-large"
 
-    # ChromaDB Configuration
-    chroma_persist_directory: str = "chroma_db"
+    # Pinecone Configuration
+    pinecone_api_key: str
+    pinecone_index_name: str
+    pinecone_host: str | None = None
+
 
     # Retrieval Configuration
     retrieval_k: int = 4

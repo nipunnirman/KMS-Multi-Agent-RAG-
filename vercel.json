@@ -1,0 +1,25 @@
+{
+    "builds": [
+        {
+            "src": "src/app/api.py",
+            "use": "@vercel/python"
+        },
+        {
+            "src": "src/frontend/package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "dist"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "src/app/api.py"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "src/frontend/$1"
+        }
+    ]
+}

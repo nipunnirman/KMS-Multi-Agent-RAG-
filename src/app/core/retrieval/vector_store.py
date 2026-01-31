@@ -1,11 +1,12 @@
-"""Vector store wrapper for ChromaDB integration with LangChain."""
+"""Vector store wrapper for Pinecone integration with LangChain."""
 
 from pathlib import Path
 from functools import lru_cache
 from typing import List
 
+from pinecone import Pinecone
 from langchain_core.documents import Document
-from langchain_chroma import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -15,29 +16,36 @@ from ..config import get_settings
 
 
 @lru_cache(maxsize=1)
-def _get_vector_store() -> Chroma:
-    """Create a Chroma vector store instance configured from settings."""
+def _get_vector_store() -> PineconeVectorStore:
+    """Create a PineconeVectorStore instance configured from settings."""
     settings = get_settings()
+
+    pc = Pinecone(api_key=settings.pinecone_api_key)
+    
+    # Use explicit host if available (faster for serverless)
+    if settings.pinecone_host:
+        index = pc.Index(settings.pinecone_index_name, host=settings.pinecone_host)
+    else:
+        index = pc.Index(settings.pinecone_index_name)
 
     embeddings = OpenAIEmbeddings(
         model=settings.openai_embedding_model_name,
         api_key=settings.openai_api_key,
     )
 
-    return Chroma(
-        collection_name="rag-collection",
-        embedding_function=embeddings,
-        persist_directory=settings.chroma_persist_directory,
+    return PineconeVectorStore(
+        index=index,
+        embedding=embeddings,
     )
 
 def get_retriever(k: int | None = None):
-    """Get a Chroma retriever instance.
+    """Get a Pinecone retriever instance.
 
     Args:
         k: Number of documents to retrieve (defaults to config value).
 
     Returns:
-        Chroma vector store retriever.
+        PineconeVectorStore instance configured as a retriever.
     """
     settings = get_settings()
     if k is None:
@@ -48,7 +56,7 @@ def get_retriever(k: int | None = None):
 
 
 def retrieve(query: str, k: int | None = None) -> List[Document]:
-    """Retrieve documents from Chroma for a given query.
+    """Retrieve documents from Pinecone for a given query.
 
     Args:
         query: Search query string.
@@ -61,7 +69,7 @@ def retrieve(query: str, k: int | None = None) -> List[Document]:
     return retriever.invoke(query)
 
 def index_documents(file_path: Path) -> int:
-    """Index a list of Document objects into the Chroma vector store.
+    """Index a list of Document objects into the Pinecone vector store.
 
     Args:
         file_path: Path to the PDF file to index.
@@ -69,8 +77,7 @@ def index_documents(file_path: Path) -> int:
     Returns:
         The number of documents indexed.
     """
-    loader = PyPDFLoader(str(file_path))
-    # Load all pages
+    loader = PyPDFLoader(str(file_path), mode="single")
     docs = loader.load()
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
@@ -78,5 +85,4 @@ def index_documents(file_path: Path) -> int:
 
     vector_store = _get_vector_store()
     vector_store.add_documents(texts)
-    
     return len(texts)
