@@ -45,4 +45,11 @@ def get_settings() -> Settings:
     global _settings
     if _settings is None:
         _settings = Settings()
+        # Force strip keys to avoid hidden whitespace issues
+        if _settings.openai_api_key:
+            _settings.openai_api_key = _settings.openai_api_key.strip()
+        if _settings.pinecone_api_key:
+            _settings.pinecone_api_key = _settings.pinecone_api_key.strip()
+            
+        print(f"DEBUG: Loaded OpenAI API Key: {_settings.openai_api_key[:10]}...{_settings.openai_api_key[-5:]}")
     return _settings

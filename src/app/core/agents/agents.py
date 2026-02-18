@@ -1,15 +1,16 @@
 """Agent implementations for the multi-agent RAG flow.
 
-This module defines three LangChain agents (Retrieval, Summarization,
-Verification) and thin node functions that LangGraph uses to invoke them.
+This module defines thin node functions that execute logic directly using OpenAI client
+to avoid LangChain's SecretStr handling issues in uvicorn environment.
 """
 
-from typing import List
+from typing import List, Tuple
+import os
 
-from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+import openai
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
 
-from ..llm.factory import create_chat_model
+from ..config import Settings
 from .prompts import (
     RETRIEVAL_SYSTEM_PROMPT,
     SUMMARIZATION_SYSTEM_PROMPT,
@@ -19,96 +20,87 @@ from .state import QAState
 from .tools import retrieval_tool
 
 
-def _extract_last_ai_content(messages: List[object]) -> str:
+def _extract_last_ai_content(messages: List[BaseMessage]) -> str:
     """Extract the content of the last AIMessage in a messages list."""
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage):
-            return str(msg.content)
+    if messages and isinstance(messages[-1], AIMessage):
+        return str(messages[-1].content)
     return ""
 
 
-# Define agents at module level for reuse
-retrieval_agent = create_agent(
-    model=create_chat_model(),
-    tools=[retrieval_tool],
-    system_prompt=RETRIEVAL_SYSTEM_PROMPT,
-)
-
-summarization_agent = create_agent(
-    model=create_chat_model(),
-    tools=[],
-    system_prompt=SUMMARIZATION_SYSTEM_PROMPT,
-)
-
-verification_agent = create_agent(
-    model=create_chat_model(),
-    tools=[],
-    system_prompt=VERIFICATION_SYSTEM_PROMPT,
-)
-
-
 def retrieval_node(state: QAState) -> QAState:
-    """Retrieval Agent node: gathers context from vector store.
+    """Retrieval Node: gathers context from vector store directly.
 
     This node:
-    - Sends the user's question to the Retrieval Agent.
-    - The agent uses the attached retrieval tool to fetch document chunks.
-    - Extracts the tool's content (CONTEXT string) from the ToolMessage.
+    - Calling the retrieval tool directly with the user's question.
     - Stores the consolidated context string in `state["context"]`.
     """
     question = state["question"]
+    
+    # Directly invoke the tool
+    try:
+        tool_output = retrieval_tool.invoke(question)
+        
+        # Handle different output formats based on langchain version
+        if isinstance(tool_output, tuple) and len(tool_output) == 2:
+            context, artifact = tool_output
+            citations = artifact.get("citations", {}) if isinstance(artifact, dict) else {}
+        else:
+            # Fallback if it returns just content
+            context = str(tool_output)
+            citations = {}
 
-    result = retrieval_agent.invoke({"messages": [HumanMessage(content=question)]})
-
-    messages = result.get("messages", [])
-    context = ""
-    citations = {}
-
-    # Prefer the last ToolMessage content (from retrieval_tool)
-    for msg in reversed(messages):
-        if isinstance(msg, ToolMessage):
-            context = str(msg.content)
-            # Extract citations from artifact if present
-            if msg.artifact and isinstance(msg.artifact, dict):
-                citations = msg.artifact.get("citations", {})
-            break
-
-    return {
-        "context": context,
-        "citations": citations,
-    }
+        return {
+            "context": context,
+            "citations": citations,
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # In case of tool error, return empty context
+        return {"context": "", "citations": {}}
 
 
 def summarization_node(state: QAState) -> QAState:
-    """Summarization Agent node: generates draft answer from context.
+    """Summarization Node: generates draft answer from context using OpenAI directly.
 
     This node:
-    - Sends question + context to the Summarization Agent.
-    - Agent responds with a draft answer grounded only in the context.
+    - Constructs a prompt with system instructions and user content.
+    - Invokes OpenAI API directly.
     - Stores the draft answer in `state["draft_answer"]`.
     """
     question = state["question"]
     context = state.get("context")
 
     user_content = f"Question: {question}\n\nContext:\n{context}"
-
-    result = summarization_agent.invoke(
-        {"messages": [HumanMessage(content=user_content)]}
+    
+    # Instantiate Settings directly
+    settings = Settings()
+    # Force strip key if needed
+    api_key = settings.openai_api_key.strip() if settings.openai_api_key else ""
+    client = openai.Client(api_key=api_key)
+    
+    response = client.chat.completions.create(
+        model=settings.openai_model_name,
+        messages=[
+            {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content}
+        ],
+        temperature=0.0
     )
-    messages = result.get("messages", [])
-    draft_answer = _extract_last_ai_content(messages)
+    
+    draft_answer = response.choices[0].message.content
 
     return {
-        "draft_answer": draft_answer,
+        "draft_answer": str(draft_answer),
     }
 
 
 def verification_node(state: QAState) -> QAState:
-    """Verification Agent node: verifies and corrects the draft answer.
+    """Verification Node: verifies and corrects the draft answer using OpenAI directly.
 
     This node:
-    - Sends question + context + draft_answer to the Verification Agent.
-    - Agent checks for hallucinations and unsupported claims.
+    - Constructs a prompt with verification instructions.
+    - Invokes OpenAI API directly.
     - Stores the final verified answer in `state["answer"]`.
     """
     question = state["question"]
@@ -125,12 +117,23 @@ Draft Answer:
 
 Please verify and correct the draft answer, removing any unsupported claims."""
 
-    result = verification_agent.invoke(
-        {"messages": [HumanMessage(content=user_content)]}
+    # Instantiate Settings directly
+    settings = Settings()
+    api_key = settings.openai_api_key.strip() if settings.openai_api_key else ""
+    
+    client = openai.Client(api_key=api_key)
+
+    response = client.chat.completions.create(
+        model=settings.openai_model_name,
+        messages=[
+            {"role": "system", "content": VERIFICATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content}
+        ],
+        temperature=0.0
     )
-    messages = result.get("messages", [])
-    answer = _extract_last_ai_content(messages)
+    
+    answer = response.choices[0].message.content
 
     return {
-        "answer": answer,
+        "answer": str(answer),
     }

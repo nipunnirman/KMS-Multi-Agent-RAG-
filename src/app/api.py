@@ -34,6 +34,10 @@ async def unhandled_exception_handler(
         # Let FastAPI handle HTTPException as usual.
         raise exc
 
+    import traceback
+    traceback.print_exc()
+    print(f"Unhandled exception: {exc}")
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal server error"},
@@ -102,3 +106,17 @@ async def index_pdf(file: UploadFile = File(...)) -> dict:
         "chunks_indexed": chunks_indexed,
         "message": "PDF indexed successfully.",
     }
+
+@app.get("/test-openai")
+async def test_openai():
+    from .core.llm.factory import create_chat_model
+    from langchain_core.messages import HumanMessage
+    
+    chat = create_chat_model()
+    try:
+        response = chat.invoke([HumanMessage(content="Hello")])
+        return {"content": response.content}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
