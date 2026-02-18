@@ -22,8 +22,11 @@ def _get_vector_store() -> PineconeVectorStore:
 
     pc = Pinecone(api_key=settings.pinecone_api_key)
     
-    # Use auto-resolution for host to avoid 401 errors
-    index = pc.Index(settings.pinecone_index_name)
+    # Use explicit host if available (faster for serverless)
+    if settings.pinecone_host:
+        index = pc.Index(settings.pinecone_index_name, host=settings.pinecone_host)
+    else:
+        index = pc.Index(settings.pinecone_index_name)
 
     embeddings = OpenAIEmbeddings(
         model=settings.openai_embedding_model_name,
