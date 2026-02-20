@@ -13,7 +13,7 @@ try:
     settings = get_settings()
     print(f"Pinecone Index: {settings.pinecone_index_name}")
     
-    question = "What is the main advantage of vector databases?"
+    question = "What is the net income reported?"
     print(f"\nAttempting to answer question: '{question}'")
     
     result = answer_question(question)
